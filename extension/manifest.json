@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Perplexity Space Bridge",
+  "version": "2.3",
+  "description": "Bridge for Perplexity.ai Spaces",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "storage",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://www.perplexity.ai/*",
+    "http://localhost:3002/*",
+    "ws://localhost:3002/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.perplexity.ai/spaces/*"],
+      "js": ["content_space.js"],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ]
+}
