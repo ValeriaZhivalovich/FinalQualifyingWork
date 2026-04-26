@@ -1,3 +1,124 @@
+import sys
+import os
+from pathlib import Path
+import argparse
+
+# Добавить корневую директорию в путь для импортов
+root_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(root_dir))
+
+# Также добавить текущую директорию news_analyzer
+current_dir = Path(__file__).parent
+sys.path.insert(0, str(current_dir))
+
+import logging
+from typing import List
+from news_analyzer.config.settings import Settings
+from news_analyzer.collectors.base import BaseCollector
+from news_analyzer.db.database import create_database_engine, create_tables, get_session_factory
+from news_analyzer.db.repository import DatabaseRepository
+from news_analyzer.nlp.preprocessor import NLPPreprocessor
+from news_analyzer.ai.ollama_backend import OllamaAgent
+from news_analyzer.collectors.rss_collector import RSSCollector
+from news_analyzer.pipeline.orchestrator import PipelineOrchestrator
+from news_analyzer.ui.app import main as ui_main
+
+logger = logging.getLogger(__name__)
+
+
+def initialize_components(settings: Settings):
+    """Инициализировать все компоненты приложения"""
+
+    # Инициализация БД
+    engine = create_database_engine(settings.database_url)
+    create_tables(engine)
+    session_factory = get_session_factory(engine)
+    repository = DatabaseRepository(session_factory)
+
+    # Инициализация NLP
+    preprocessor = NLPPreprocessor()
+
+    # Инициализация ИИ агента
+    ai_agent = OllamaAgent(host=settings.ollama_host, model_name=settings.ollama_model)
+
+    # Инициализация коллекторов
+    collectors: List[BaseCollector] = [
+        RSSCollector(),  # Пока только RSS
+    ]
+
+    # Инициализация оркестратора
+    orchestrator = PipelineOrchestrator(collectors, preprocessor, ai_agent, repository)
+
+    return {
+        'engine': engine,
+        'session_factory': session_factory,
+        'repository': repository,
+        'preprocessor': preprocessor,
+        'ai_agent': ai_agent,
+        'collectors': collectors,
+        'orchestrator': orchestrator
+    }
+
+
+def run_parsing_demo(orchestrator: PipelineOrchestrator):
+    """Демонстрационный запуск парсинга"""
+    logger.info("Starting parsing demo...")
+    try:
+        count = orchestrator.run_full_cycle()
+        logger.info(f"Demo completed. Processed {count} articles.")
+    except Exception as e:
+        logger.error(f"Error during demo: {e}")
+
+
+def main():
+    """Главная функция приложения"""
+    # Парсинг аргументов командной строки
+    parser = argparse.ArgumentParser(description='News Analyzer')
+    parser.add_argument('--headless', action='store_true', help='Run without GUI (for testing)')
+    parser.add_argument('--skip-parsing', action='store_true', help='Skip initial parsing demo')
+    args = parser.parse_args()
+
+    logger.info("News Analyzer starting...")
+
+    try:
+        # Загрузка настроек
+        settings = Settings()
+
+        # Инициализация компонентов
+        components = initialize_components(settings)
+
+        logger.info("Components initialized successfully")
+
+        # Проверка подключения к Ollama
+        if not components['ai_agent'].validate_connection():
+            logger.warning("Ollama connection not available. AI features will not work.")
+
+        # Для демонстрации - запуск парсинга (если не отключено)
+        if not args.skip_parsing:
+            logger.info("Running initial parsing demo...")
+            run_parsing_demo(components['orchestrator'])
+
+        # Запуск UI (если не headless режим)
+        if not args.headless:
+            logger.info("Starting UI...")
+            import flet as ft
+            # Передаем orchestrator и repository в UI для возможности запуска парсинга и загрузки новостей
+            def ui_main_with_components(page: ft.Page):
+                from news_analyzer.ui.app import NewsAnalyzerApp
+                app = NewsAnalyzerApp(
+                    orchestrator=components['orchestrator'],
+                    repository=components['repository']
+                )
+                app.main(page)
+
+            ft.app(target=ui_main_with_components)
+        else:
+            logger.info("Headless mode: skipping UI")
+
+    except Exception as e:
+        logger.error(f"Application error: {e}")
+        raise
+
+
 if __name__ == "__main__":
-    print("News Analyzer starting...")
-    # TODO: Initialize and run the application
+    main()

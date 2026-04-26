@@ -1,4 +1,6 @@
 import hashlib
+import requests
+from typing import Optional
 from .agent import BaseAIAgent
 from ..models import CleanArticle, ProcessedArticle
 
@@ -6,9 +8,10 @@ from ..models import CleanArticle, ProcessedArticle
 class OllamaAgent(BaseAIAgent):
     """ИИ-агент на базе Ollama"""
 
-    def __init__(self, model_name: str = "mistral:7b"):
+    def __init__(self, host: str = "http://localhost:11434", model_name: str = "mistral:7b"):
+        self.host = host.rstrip('/')
         self.model_name = model_name
-        # TODO: Initialize Ollama client
+        self.api_url = f"{self.host}/api/generate"
 
     def process(self, clean_article: CleanArticle) -> ProcessedArticle:
         """Обработать статью через Ollama"""
@@ -36,17 +39,73 @@ class OllamaAgent(BaseAIAgent):
 
     def _generate_summary(self, text: str) -> str:
         """Сгенерировать резюме"""
-        # TODO: Ollama API call
-        prompt = f"Сократи следующую новость до 2-3 предложений на русском языке. Только суть. Текст: {text}"
-        return "TODO: Summary from Ollama"
+        prompt = f"Сократи следующую новость до 2-3 предложений на русском языке. Только суть, без лишних слов. Текст: {text}"
+
+        try:
+            response = self._call_ollama(prompt)
+            if response:
+                # Очищаем ответ от лишних символов
+                summary = response.strip()
+                return summary if summary else "Не удалось сгенерировать резюме"
+            else:
+                return "Ошибка генерации резюме"
+        except Exception as e:
+            print(f"Error generating summary: {e}")
+            return "Ошибка генерации резюме"
 
     def _classify_category(self, text: str) -> str:
         """Определить категорию"""
-        # TODO: Ollama API call
-        prompt = f"Определи одну категорию для новости из списка: политика, технологии, экономика, спорт, культура, прочее. Ответь одним словом. Текст: {text}"
-        return "прочее"  # fallback
+        categories = ["политика", "технологии", "экономика", "спорт", "культура", "прочее"]
+        categories_str = ", ".join(categories)
+
+        prompt = f"Определи одну категорию для новости из списка: {categories_str}. Ответь только одним словом из списка. Текст: {text}"
+
+        try:
+            response = self._call_ollama(prompt)
+            if response:
+                # Нормализуем ответ
+                category = response.strip().lower()
+                if category in categories:
+                    return category
+                else:
+                    return "прочее"  # fallback
+            else:
+                return "прочее"
+        except Exception as e:
+            print(f"Error classifying category: {e}")
+            return "прочее"
+
+    def _call_ollama(self, prompt: str) -> Optional[str]:
+        """Вызов Ollama API"""
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.1,  # Низкая температура для детерминированных ответов
+                "num_predict": 100   # Ограничение длины ответа
+            }
+        }
+
+        try:
+            response = requests.post(self.api_url, json=payload, timeout=50)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('response', '').strip()
+        except requests.exceptions.RequestException as e:
+            print(f"Ollama API error: {e}")
+            return None
 
     def validate_connection(self) -> bool:
         """Проверить подключение к Ollama"""
-        # TODO: Check if Ollama is running
-        return True
+        try:
+            # Проверяем доступность модели
+            test_payload = {
+                "model": self.model_name,
+                "prompt": "test",
+                "stream": False
+            }
+            response = requests.post(self.api_url, json=test_payload, timeout=50)
+            return response.status_code == 200
+        except:
+            return False
