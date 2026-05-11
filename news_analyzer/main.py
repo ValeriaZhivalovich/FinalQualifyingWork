@@ -111,7 +111,7 @@ def main():
                 )
                 app.main(page)
 
-            ft.app(target=ui_main_with_components)
+            ft.run(ui_main_with_components)
         else:
             logger.info("Headless mode: skipping UI")
 

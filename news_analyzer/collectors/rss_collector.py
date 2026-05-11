@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 from ..models import RawArticle
 from .base import BaseCollector
@@ -9,7 +9,8 @@ import requests
 class RSSCollector(BaseCollector):
     source_name = "rss"
 
-    def __init__(self, feed_urls: List[str] = None):
+    def __init__(self, feed_urls: List[str] | None = None, topic_keywords: List[str] | None = None,
+                 max_age_days: Optional[int] = None, limit_per_feed: int = 50):
         # Список RSS-лент для парсинга
         self.feed_urls = feed_urls or [
             "https://ria.ru/export/rss2/archive/index.xml",  # РИА Новости
@@ -17,6 +18,39 @@ class RSSCollector(BaseCollector):
             "https://tass.ru/rss/v2.xml",  # ТАСС
             "https://www.interfax.ru/rss.asp",  # Интерфакс
         ]
+
+        # Максимальное количество статей с одного фида (для ускорения)
+        self.limit_per_feed = limit_per_feed
+
+        # Ограничение по возрасту новости (в днях)
+        # None - без ограничения, 1 - только за последний день, 7 - за неделю и т.д.
+        self.max_age_days = max_age_days
+
+        # Ключевые слова для фильтрации новостей по заданной тематике
+        # None  - использовать список по умолчанию (Крым)
+        # []    - без фильтрации (все новости)
+        # [слова] - фильтровать по указанным словам
+        if topic_keywords is None:
+            self.topic_keywords = [
+                # Основные названия
+                "крым", "крыма", "крыму", "крымом", "крыме", "крымский", "крымская", "крымские",
+                "севастополь", "севастополя", "севастополю", "севастополем", "севастополь",
+                "керчь", "керчи", "керчью", "керчью", "керчи", "керченский", "керченская",
+                "симферополь", "симферополя", "симферополю", "симферополем", "симферополе",
+                "ялта", "ялты", "ялте", "ялту", "ялтой", "ялтинский", "ялтинская",
+                "феодосия", "феодосии", "феодосией", "феодосию", "феодосии",
+                "евпатория", "евпатории", "евпаторией", "евпаторию", "евпатории",
+
+                # Дополнительные ключевые слова
+                "крымчанин", "крымчане", "крымчан", "крымчанам",
+                "крымский мост", "крымского моста",
+                "аннексия", "аннекси", "аннексирован",
+                "оккупация", "оккупирован", "оккупации",
+                "полуостров", "полуострова", "полуостровом",
+                "таврида", "тавриды", "тавриде"
+            ]
+        else:
+            self.topic_keywords = topic_keywords
 
         # Ключевые слова для фильтрации новостей по Крыму
         self.crimea_keywords = [
@@ -28,7 +62,7 @@ class RSSCollector(BaseCollector):
             "ялта", "ялты", "ялте", "ялту", "ялтой", "ялтинский", "ялтинская",
             "феодосия", "феодосии", "феодосией", "феодосию", "феодосии",
             "евпатория", "евпатории", "евпаторией", "евпаторию", "евпатории",
-
+        
             # Дополнительные ключевые слова
             "крымчанин", "крымчане", "крымчан", "крымчанам",
             "крымский мост", "крымского моста",
@@ -38,112 +72,88 @@ class RSSCollector(BaseCollector):
             "таврида", "тавриды", "тавриде"
         ]
 
+
+
+
+
     def fetch(self) -> List[RawArticle]:
-        """Получить новости из RSS-лент"""
-        articles = []
-        total_filtered = 0
+        """Спарсить все RSS-ленты и вернуть статьи"""
+        articles: List[RawArticle] = []
 
         for feed_url in self.feed_urls:
             try:
-                print(f"Fetching RSS from: {feed_url}")
-                # Добавляем timeout для предотвращения зависания
-                response = requests.get(feed_url, timeout=10)
-                print(f"Response status: {response.status_code}")
-                feed = feedparser.parse(response.content)
-
-                # Проверяем статус код ответа HTTP
-                if response.status_code not in [200, 301, 302]:  # Allow redirects
-                    print(f"Failed to fetch RSS from {feed_url}: HTTP {response.status_code}")
-                    continue
+                feed = feedparser.parse(feed_url)
 
                 if not feed.entries:
-                    print(f"No entries found in RSS from {feed_url}")
-                    print(f"Feed bozo: {feed.get('bozo')}")
-                    if feed.get('bozo_exception'):
-                        print(f"Feed parsing error: {feed.get('bozo_exception')}")
+                    print(f"No entries in feed: {feed_url}")
                     continue
 
-                print(f"Found {len(feed.entries)} entries in {feed_url}")
+                entries = feed.entries[:self.limit_per_feed]
 
-                for entry in feed.entries:
-                    try:
-                        article = self._parse_entry(entry, feed_url)
-                        if article is not None:
-                            articles.append(article)
-                        else:
-                            total_filtered += 1
-                    except Exception as e:
-                        print(f"Error parsing RSS entry from {feed_url}: {e}")
-                        import traceback
-                        traceback.print_exc()
+                for entry in entries:
+                    # Проверка по дате
+                    published = self._parse_date(entry)
+                    if self.max_age_days and published:
+                        from datetime import datetime, timedelta
+                        cutoff = datetime.now() - timedelta(days=self.max_age_days)
+                        if published < cutoff:
+                            continue
+
+                    # Фильтрация по ключевым словам
+                    title = entry.get('title', '')
+                    summary = entry.get('summary', '')
+                    text = f"{title} {summary}".strip()
+
+                    if not self._matches_keywords(text):
+                        continue
+
+                    # Генерация source_id
+                    link = entry.get('link', '')
+                    source_id = link or entry.get('id', '') or title[:100]
+
+                    article = RawArticle(
+                        source=self.source_name,
+                        source_id=source_id,
+                        title=title or None,
+                        text=text,
+                        url=link or None,
+                        published_at=published if published else datetime.now(),
+                        raw_data=entry
+                    )
+                    articles.append(article)
 
             except Exception as e:
-                print(f"Error fetching RSS feed {feed_url}: {e}")
+                print(f"Error parsing feed {feed_url}: {e}")
 
-        print(f"Total articles fetched: {len(articles)}, filtered out: {total_filtered}")
+        print(f"RSSCollector fetched {len(articles)} articles")
         return articles
 
-    def _parse_entry(self, entry, feed_url: str) -> RawArticle | None:
-        """Парсить одну запись из RSS"""
-        # Извлечение заголовка
-        title = getattr(entry, 'title', None)
-        if title:
-            title = title.strip()
+    def _parse_date(self, entry) -> datetime:
+        """Разобрать дату публикации из RSS entry"""
+        date_fields = ['published_parsed', 'updated_parsed']
+        for field in date_fields:
+            if field in entry and entry[field]:
+                try:
+                    return datetime(*entry[field][:6])
+                except (TypeError, ValueError):
+                    pass
 
-        # Извлечение текста (описания)
-        text = ""
-        if hasattr(entry, 'description'):
-            text = entry.description.strip()
-        elif hasattr(entry, 'summary'):
-            text = entry.summary.strip()
+        # Fallback: пробуем строковые поля
+        for field in ['published', 'updated']:
+            if field in entry and entry[field]:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    return parsedate_to_datetime(entry[field]).replace(tzinfo=None)
+                except Exception:
+                    pass
+        return None
 
-        # Если текста мало, попробуем content
-        if hasattr(entry, 'content') and len(text) < 50:
-            content = entry.content[0] if isinstance(entry.content, list) else entry.content
-            if hasattr(content, 'value'):
-                text = content.value.strip()
-
-        # Извлечение ссылки
-        url = getattr(entry, 'link', None)
-
-        # Извлечение даты публикации
-        published_at = datetime.now()  # fallback
-        if hasattr(entry, 'published_parsed') and entry.published_parsed:
-            try:
-                published_at = datetime(*entry.published_parsed[:6])
-            except:
-                pass
-
-        # Source ID - используем URL или guid
-        source_id = getattr(entry, 'id', None) or getattr(entry, 'guid', None) or url
-        if not source_id:
-            # Fallback: хеш от заголовка и текста
-            import hashlib
-            source_id = hashlib.md5(f"{title}{text}".encode()).hexdigest()
-
-        # Raw data для отладки
-        raw_data = {
-            'feed_url': feed_url,
-            'entry': dict(entry)
-        }
-
-        # Фильтрация: только новости по Крыму
-        content_to_check = f"{title or ''} {text or ''}".lower()
-
-        has_crimea_keyword = any(keyword in content_to_check for keyword in self.crimea_keywords)
-
-        if not has_crimea_keyword:
-            return None  # Пропускаем новость, если она не касается Крыма
-
-        return RawArticle(
-            source=self.source_name,
-            source_id=source_id,
-            title=title,
-            text=text,
-            url=url,
-            published_at=published_at,
-            raw_data=raw_data
-        )
+    def _matches_keywords(self, text: str) -> bool:
+        """Проверить, содержит ли текст ключевые слова"""
+        if not self.topic_keywords:
+            return True
+        text_lower = text.lower()
+        return any(kw.lower() in text_lower for kw in self.topic_keywords)
 
     def validate_config(self) -> bool:
         """Проверить конфигурацию RSS"""

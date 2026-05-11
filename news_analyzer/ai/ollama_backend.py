@@ -13,6 +13,15 @@ class OllamaAgent(BaseAIAgent):
         self.model_name = model_name
         self.api_url = f"{self.host}/api/generate"
 
+    # Промпты для обработки новостей
+    SUMMARY_PROMPT = """Сократи следующую новость до 2-3 предложений на русском языке. 
+Только суть, без лишних слов и вводных конструкций. Сохрани ключевую информацию.
+Текст: {text}"""
+
+    CATEGORY_PROMPT = """Определи одну категорию для новости из списка: 
+{categories_str}. Ответь только одним словом из списка без дополнительных объяснений.
+Текст: {text}"""
+
     def process(self, clean_article: CleanArticle) -> ProcessedArticle:
         """Обработать статью через Ollama"""
         # Генерация резюме
@@ -39,7 +48,7 @@ class OllamaAgent(BaseAIAgent):
 
     def _generate_summary(self, text: str) -> str:
         """Сгенерировать резюме"""
-        prompt = f"Сократи следующую новость до 2-3 предложений на русском языке. Только суть, без лишних слов. Текст: {text}"
+        prompt = self.SUMMARY_PROMPT.format(text=text)
 
         try:
             response = self._call_ollama(prompt)
@@ -58,7 +67,7 @@ class OllamaAgent(BaseAIAgent):
         categories = ["политика", "технологии", "экономика", "спорт", "культура", "прочее"]
         categories_str = ", ".join(categories)
 
-        prompt = f"Определи одну категорию для новости из списка: {categories_str}. Ответь только одним словом из списка. Текст: {text}"
+        prompt = self.CATEGORY_PROMPT.format(categories_str=categories_str, text=text)
 
         try:
             response = self._call_ollama(prompt)

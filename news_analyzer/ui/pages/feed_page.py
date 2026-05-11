@@ -1,171 +1,220 @@
 import flet as ft
-from typing import List
 
 
 class FeedPage:
     """Страница ленты новостей"""
 
-    def __init__(self):
-        self.articles = []  # TODO: Получать из базы данных
-        self.category_filter = ft.Dropdown(
-            label="Категория",
-            options=[
-                ft.dropdown.Option("Все"),
-                ft.dropdown.Option("политика"),
-                ft.dropdown.Option("технологии"),
-                ft.dropdown.Option("экономика"),
-                ft.dropdown.Option("спорт"),
-                ft.dropdown.Option("культура"),
-                ft.dropdown.Option("прочее"),
-            ],
-            value="Все",
-            width=200,
+    def __init__(self, repository=None, orchestrator=None):
+        self.repository = repository
+        self.orchestrator = orchestrator
+        self.refresh_callback = None
+        self.all_articles = []
+        self.articles = []
+        self.show_unread_only = False
+        self.page = None
+
+        # UI elements
+        self.category_filter = None
+        self.source_filter = None
+        self.search_field = None
+        self.unread_switch = None
+        self.articles_column = ft.Column(
+            controls=[],
+            scroll=ft.ScrollMode.AUTO,
+            spacing=10,
+            expand=True
         )
+        self.container = None
 
-        self.source_filter = ft.Dropdown(
-            label="Источник",
-            options=[
-                ft.dropdown.Option("Все"),
-                ft.dropdown.Option("rss"),
-                ft.dropdown.Option("telegram"),
-                ft.dropdown.Option("vk"),
-            ],
-            value="Все",
-            width=200,
-        )
-
-        self.search_field = ft.TextField(
-            label="Поиск",
-            width=300,
-            on_change=self.on_search_change
-        )
-
-        self.articles_list = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=10)
-
-    def build(self) -> ft.Container:
-        """Построить страницу"""
-        # Заголовок и фильтры
-        header = ft.Container(
-            content=ft.Column([
-                ft.Text("Лента новостей", size=24, weight=ft.FontWeight.BOLD),
-                ft.Row([
-                    self.category_filter,
-                    self.source_filter,
-                    self.search_field,
-                    ft.ElevatedButton("Обновить", on_click=self.on_refresh_click),
-                ], spacing=10),
-            ]),
-            padding=20
-        )
-
-        # Список новостей
+    def build(self, page=None) -> ft.Container:
+        """Build the feed page UI"""
+        self.page = page
         self.load_articles()
 
-        return ft.Container(
+        header = self._build_header()
+
+        self.container = ft.Container(
             content=ft.Column([
                 header,
                 ft.Divider(),
-                self.articles_list
+                self.articles_column
             ]),
             expand=True
         )
 
-    def load_articles(self):
-        """Загрузить статьи из базы данных"""
-        # TODO: Реализовать загрузку из БД
-        # Пока показываем тестовые данные
-        self.articles_list.controls.clear()
+        return self.container
 
-        if not self.articles:
-            self.articles = self._get_mock_articles()
+    def set_refresh_callback(self, cb):
+        self.refresh_callback = cb
 
-        for article in self.articles:
-            article_card = self._create_article_card(article)
-            self.articles_list.controls.append(article_card)
+    def _notify_parent(self):
+        if callable(self.refresh_callback):
+            self.refresh_callback()
 
-        self.articles_list.update()
+    def _apply_filters_and_refresh(self, e=None):
+        self.load_articles()
+        self._apply_filters()
+        self.articles_column.controls = self._build_article_cards()
+        if self.page:
+            self.page.update()
+        self._notify_parent()
 
-    def _create_article_card(self, article) -> ft.Card:
-        """Создать карточку статьи"""
-        # Handle Flet version differences for colors
-        if hasattr(ft, 'colors'):
-            colors_module = ft.colors
-        else:
-            colors_module = ft.Colors
-
-        category_colors = {
-            "политика": colors_module.BLUE,
-            "технологии": colors_module.GREEN,
-            "экономика": colors_module.ORANGE,
-            "спорт": colors_module.RED,
-            "культура": colors_module.PURPLE,
-            "прочее": colors_module.GREY,
-        }
-
-        category_color = category_colors.get(article.get('category', 'прочее'), colors_module.GREY)
-
-        # Handle source text color for Flet version differences
-        source_color = colors_module.GREY
-
-        return ft.Card(
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.Text(article['source'], size=12, color=ft.Colors.GREY),
-                        ft.Container(width=10),
-                        ft.Chip(
-                            label=ft.Text(article['category'], size=10),
-                            bgcolor=category_color,
-                            color=ft.Colors.WHITE,
-                        ),
-                        ft.Container(width=10),
-                        ft.Text(article['published_at'], size=12, color=ft.Colors.GREY),
-                    ]),
-                    ft.Text(article['title'], size=16, weight=ft.FontWeight.BOLD),
-                    ft.Text(article['summary'], size=14),
-                    ft.Row([
-                        ft.TextButton("Открыть", url=article.get('url')),
-                        ft.TextButton("Прочитано", on_click=lambda e: self.mark_as_read(article['id'])),
-                    ])
-                ]),
-                padding=15
-            )
+    def _build_header(self):
+        self.category_filter = ft.Dropdown(
+            label="Категория",
+            options=[ft.DropdownOption(key=c, text=c) for c in ["Все", "политика", "технологии", "экономика", "спорт", "культура", "прочее"]],
+            value="Все",
+            width=180,
+            on_select=lambda e: self._apply_filters_and_refresh(),
+        )
+        self.source_filter = ft.Dropdown(
+            label="Источник",
+            options=[ft.DropdownOption(key=s, text=s) for s in ["Все", "rss", "telegram", "vk"]],
+            value="Все",
+            width=180,
+            on_select=lambda e: self._apply_filters_and_refresh(),
+        )
+        self.search_field = ft.TextField(
+            label="Поиск",
+            hint_text="Поиск по заголовку...",
+            width=250,
+            on_submit=lambda e: self._apply_filters_and_refresh(),
+        )
+        self.unread_switch = ft.Switch(
+            label="Только непрочитанные",
+            value=False,
+            on_change=lambda e: self._apply_filters_and_refresh(),
         )
 
-    def _get_mock_articles(self) -> List[dict]:
-        """Тестовые данные для демонстрации"""
-        return [
-            {
-                'id': 1,
-                'source': 'rss',
-                'title': 'Тестовая новость 1',
-                'summary': 'Это краткое резюме первой тестовой новости для демонстрации интерфейса.',
-                'category': 'технологии',
-                'published_at': '2024-01-15 10:30',
-                'url': 'https://example.com/news1'
-            },
-            {
-                'id': 2,
-                'source': 'rss',
-                'title': 'Тестовая новость 2',
-                'summary': 'Вторая тестовая новость о политике для проверки фильтров.',
-                'category': 'политика',
-                'published_at': '2024-01-15 09:15',
-                'url': 'https://example.com/news2'
-            }
-        ]
+        def on_refresh(e):
+            self._apply_filters_and_refresh()
 
-    def on_search_change(self, e):
-        """Обработчик изменения поиска"""
-        # TODO: Реализовать поиск
-        pass
+        return ft.Container(
+            content=ft.Column([
+                ft.Text("Лента новостей", size=26, weight=ft.FontWeight.BOLD),
+                ft.Row([
+                    self.category_filter,
+                    self.source_filter,
+                    self.search_field,
+                    self.unread_switch,
+                    ft.ElevatedButton("Обновить", icon=ft.Icons.REFRESH, on_click=on_refresh),
+                ], spacing=10, wrap=True),
+            ]),
+            padding=20,
+        )
 
-    def on_refresh_click(self, e):
-        """Обработчик кнопки обновления"""
-        # TODO: Запустить парсинг
-        print("Refresh clicked")
+    def load_articles(self):
+        """Загрузить статьи из БД"""
+        if not self.repository:
+            self.all_articles = []
+            return
+        try:
+            db_articles = self.repository.get_articles(limit=100)
+            self.all_articles = [
+                {
+                    'id': a.id,
+                    'source': a.source,
+                    'title': a.title or "Без заголовка",
+                    'summary': a.summary[:200] + "..." if a.summary and len(a.summary) > 200 else a.summary or "Без описания",
+                    'category': a.category or "прочее",
+                    'published_at': a.published_at.strftime("%Y-%m-%d %H:%M") if a.published_at else "Неизвестно",
+                    'url': a.url or "#",
+                    'is_read': bool(a.is_read),
+                }
+                for a in db_articles
+            ]
+        except Exception as e:
+            print(f"Error loading articles: {e}")
+            self.all_articles = []
 
-    def mark_as_read(self, article_id):
-        """Отметить статью как прочитанную"""
-        # TODO: Обновить в БД
-        print(f"Mark as read: {article_id}")
+    def _apply_filters(self):
+        """Применить фильтры"""
+        if not self.category_filter or not self.source_filter or not self.search_field or not self.unread_switch:
+            self.articles = self.all_articles
+            return
+
+        self.show_unread_only = self.unread_switch.value
+
+        filtered = self.all_articles
+        if self.show_unread_only:
+            filtered = [a for a in filtered if not a['is_read']]
+
+        category = self.category_filter.value
+        if category and category != "Все":
+            filtered = [a for a in filtered if a['category'] == category]
+
+        source = self.source_filter.value
+        if source and source != "Все":
+            filtered = [a for a in filtered if a['source'] == source]
+
+        search = self.search_field.value.strip().lower() if self.search_field.value else ""
+        if search:
+            filtered = [a for a in filtered if search in a['title'].lower() or search in a['summary'].lower()]
+
+        self.articles = filtered
+
+    def _build_article_cards(self) -> list:
+        """Build article card widgets"""
+        if not self.articles:
+            return [
+                ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.RSS_FEED, size=48, color=ft.Colors.GREY),
+                        ft.Text("Новостей нет", size=20),
+                        ft.Text("Запустите парсинг для загрузки новостей", color=ft.Colors.GREY),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                    padding=40,
+                    alignment=ft.alignment.center,
+                )
+            ]
+
+        category_colors = {
+            "технологии": ft.Colors.BLUE,
+            "политика": ft.Colors.RED,
+            "экономика": ft.Colors.GREEN,
+            "спорт": ft.Colors.ORANGE,
+            "культура": ft.Colors.PURPLE,
+            "прочее": ft.Colors.GREY,
+        }
+        source_icons = {
+            "rss": ft.Icons.RSS_FEED,
+            "telegram": ft.Icons.SEND,
+            "vk": ft.Icons.GROUP,
+        }
+
+        cards = []
+        for a in self.articles:
+            def mark_read(e, aid=a['id']):
+                if self.repository:
+                    self.repository.mark_as_read(aid)
+                    self._apply_filters_and_refresh()
+
+            def open_url(e, url=a.get('url')):
+                if url and url != '#' and self.page:
+                    async def _launch():
+                        await self.page.launch_url(url)
+                    self.page.run_task(_launch)
+
+            cards.append(
+                ft.Card(
+                    content=ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(source_icons.get(a['source'], ft.Icons.LINK), size=14),
+                                ft.Text(a['source'].capitalize(), size=12, color=ft.Colors.GREY),
+                                ft.Chip(label=ft.Text(a['category'], size=10, color=ft.Colors.WHITE), bgcolor=category_colors.get(a['category'], ft.Colors.GREY)),
+                                ft.Text(a['published_at'], size=12, color=ft.Colors.GREY),
+                                ft.Icon(ft.Icons.CHECK_CIRCLE if a['is_read'] else ft.Icons.RADIO_BUTTON_UNCHECKED, size=16, color=ft.Colors.GREEN if a['is_read'] else ft.Colors.GREY),
+                            ], wrap=True),
+                            ft.Text(a['title'], size=16, weight=ft.FontWeight.BOLD),
+                            ft.Text(a['summary'], size=14, max_lines=3),
+                            ft.Row([
+                                ft.TextButton("Открыть", on_click=open_url),
+                                ft.TextButton("Прочитано", on_click=mark_read, disabled=a['is_read']),
+                            ]),
+                        ]),
+                        padding=15,
+                    )
+                )
+            )
+        return cards
