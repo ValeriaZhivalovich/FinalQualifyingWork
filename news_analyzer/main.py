@@ -135,7 +135,6 @@ def main():
     # Парсинг аргументов командной строки
     parser = argparse.ArgumentParser(description='News Analyzer')
     parser.add_argument('--headless', action='store_true', help='Run without GUI (for testing)')
-    parser.add_argument('--skip-parsing', action='store_true', help='Skip initial parsing demo')
     args = parser.parse_args()
 
     logger.info("News Analyzer starting...")
@@ -152,11 +151,6 @@ def main():
         # Проверка подключения к Ollama
         if not components['ai_agent'].validate_connection():
             logger.warning("Ollama connection not available. AI features will not work.")
-
-        # Для демонстрации - запуск парсинга (если не отключено)
-        if not args.skip_parsing:
-            logger.info("Running initial parsing demo...")
-            run_parsing_demo(components['orchestrator'])
 
         # Запуск UI (если не headless режим)
         if not args.headless:

@@ -118,7 +118,7 @@ class FeedPage:
                     'id': a.id,
                     'source': a.source,
                     'title': a.title or "Без заголовка",
-                    'summary': a.summary[:200] + "..." if a.summary and len(a.summary) > 200 else a.summary or "Без описания",
+                    'summary': a.summary or "Без описания",
                     'category': a.category or "прочее",
                     'published_at': a.published_at.strftime("%Y-%m-%d %H:%M") if a.published_at else "Неизвестно",
                     'url': a.url or "#",
