@@ -45,6 +45,11 @@ class PipelineOrchestrator:
                         # ИИ обработка
                         processed = self.ai_agent.process(clean)
 
+                        # Пропускаем статьи с ошибочным резюме
+                        if "Ошибка генерации резюме" in (processed.summary or ""):
+                            logger.warning(f"Skipping article with failed summary: {processed.title}")
+                            continue
+
                         # Сохранение
                         try:
                             if self.repository.save_article(processed):
@@ -135,6 +140,14 @@ class PipelineOrchestrator:
                             on_step(ai_msg)
                         
                         processed = self.ai_agent.process(clean)
+
+                        # Пропускаем статьи с ошибочным резюме
+                        if "Ошибка генерации резюме" in (processed.summary or ""):
+                            msg = f"Skipping article with failed summary: {processed.title}"
+                            logger.warning(msg)
+                            if on_step:
+                                on_step(msg)
+                            continue
 
                         # Сохранение
                         try:

@@ -14,7 +14,7 @@ class OllamaAgent(BaseAIAgent):
         self.api_url = f"{self.host}/api/generate"
 
     # Промпты для обработки новостей
-    SUMMARY_PROMPT = """Проанализируй текст и дай краткую и  досканально верно проверенную аннотацию(summary) до 15 слов, явно описывающию всю новость, не повторяя заголовок. В отвесете пиши только анотацию:
+    SUMMARY_PROMPT = """Проанализируй текст и дай краткую и досконально верно проверенную аннотацию (summary) до 15 слов, явно описывающую всю новость, не повторяя заголовок. В ответе пиши только аннотацию:
 {text}
 Аннотация:"""
 
@@ -32,6 +32,8 @@ class OllamaAgent(BaseAIAgent):
         # Генерация заголовка, если его нет
         if not title and text:
             title = self._generate_title(text)
+        if not title:
+            title = "Без заголовка"
         # Убираем заголовок из начала text_clean, чтобы не дублировать
         if title and text.startswith(title):
             text = text[len(title):].strip(". ,;:!?\n\r\t ")
