@@ -29,6 +29,13 @@ class SettingsPage:
         def on_save(e):
             self._save_settings()
 
+        def on_toggle_theme(e):
+            if self.page:
+                self.page.theme_mode = ft.ThemeMode.DARK if self.theme_switch.value else ft.ThemeMode.LIGHT
+                self.page.update()
+
+        self.theme_switch.on_change = on_toggle_theme
+
         content = ft.Container(
             content=ft.Column([
                 ft.Container(

@@ -51,12 +51,15 @@ class FeedPage:
         if callable(self.refresh_callback):
             self.refresh_callback()
 
-    def _apply_filters_and_refresh(self, e=None):
+    def refresh(self):
         self.load_articles()
         self._apply_filters()
         self.articles_column.controls = self._build_article_cards()
         if self.page:
             self.page.update()
+
+    def _apply_filters_and_refresh(self, e=None):
+        self.refresh()
         self._notify_parent()
 
     def _build_header(self):
@@ -164,7 +167,7 @@ class FeedPage:
                         ft.Text("Запустите парсинг для загрузки новостей", color=ft.Colors.GREY),
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                     padding=40,
-                    alignment=ft.alignment.center,
+                    alignment=ft.Alignment.CENTER,
                 )
             ]
 
@@ -202,12 +205,12 @@ class FeedPage:
                             ft.Row([
                                 ft.Icon(source_icons.get(a['source'], ft.Icons.LINK), size=14),
                                 ft.Text(a['source'].capitalize(), size=12, color=ft.Colors.GREY),
-                                ft.Chip(label=ft.Text(a['category'], size=10, color=ft.Colors.WHITE), bgcolor=category_colors.get(a['category'], ft.Colors.GREY)),
+                                ft.Chip(label=ft.Text(a['category'], size=10), bgcolor=category_colors.get(a['category'], ft.Colors.GREY_700)),
                                 ft.Text(a['published_at'], size=12, color=ft.Colors.GREY),
                                 ft.Icon(ft.Icons.CHECK_CIRCLE if a['is_read'] else ft.Icons.RADIO_BUTTON_UNCHECKED, size=16, color=ft.Colors.GREEN if a['is_read'] else ft.Colors.GREY),
                             ], wrap=True),
                             ft.Text(a['title'], size=16, weight=ft.FontWeight.BOLD),
-                            ft.Text(a['summary'], size=14, max_lines=3),
+                            ft.Text(a['summary'], size=14),
                             ft.Row([
                                 ft.TextButton("Открыть", on_click=open_url),
                                 ft.TextButton("Прочитано", on_click=mark_read, disabled=a['is_read']),

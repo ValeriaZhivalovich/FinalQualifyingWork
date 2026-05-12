@@ -14,29 +14,36 @@ class OllamaAgent(BaseAIAgent):
         self.api_url = f"{self.host}/api/generate"
 
     # Промпты для обработки новостей
-    SUMMARY_PROMPT = """Сократи следующую новость до 2-3 предложений на русском языке. 
-Только суть, без лишних слов и вводных конструкций. Сохрани ключевую информацию.
-Текст: {text}"""
+    SUMMARY_PROMPT = """Проанализируй текст и дай краткую и  досканально верно проверенную аннотацию(summary) до 15 слов, явно описывающию всю новость, не повторяя заголовок. В отвесете пиши только анотацию:
+{text}
+Аннотация:"""
 
     CATEGORY_PROMPT = """Определи одну категорию для новости из списка: 
 {categories_str}. Ответь только одним словом из списка без дополнительных объяснений.
 Текст: {text}"""
 
+    TITLE_PROMPT = """Придумай короткий заголовок (до 8 слов) для текста ниже. В ответе напиши только заголовок:
+{text}
+Заголовок:"""
+
     def process(self, clean_article: CleanArticle) -> ProcessedArticle:
-        """Обработать статью через Ollama"""
-        # Генерация резюме
-        summary = self._generate_summary(clean_article.text_clean)
-
-        # Определение категории
-        category = self._classify_category(clean_article.text_clean)
-
-        # Хеш для дедупликации
+        title = clean_article.title or ""
+        text = clean_article.text_clean or ""
+        # Генерация заголовка, если его нет
+        if not title and text:
+            title = self._generate_title(text)
+        # Убираем заголовок из начала text_clean, чтобы не дублировать
+        if title and text.startswith(title):
+            text = text[len(title):].strip(". ,;:!?\n\r\t ")
+        input_text = f"{title}. {text}".strip(". ") if title and text else (title or text)
+        summary = self._generate_summary(input_text)
+        category = self._classify_category(input_text)
         text_hash = hashlib.sha256(clean_article.text_clean.encode()).hexdigest()
 
         return ProcessedArticle(
             source=clean_article.source,
             source_id=clean_article.source_id,
-            title=clean_article.title,
+            title=title,
             text_clean=clean_article.text_clean,
             summary=summary,
             category=category,
@@ -47,20 +54,36 @@ class OllamaAgent(BaseAIAgent):
         )
 
     def _generate_summary(self, text: str) -> str:
-        """Сгенерировать резюме"""
         prompt = self.SUMMARY_PROMPT.format(text=text)
 
         try:
             response = self._call_ollama(prompt)
             if response:
-                # Очищаем ответ от лишних символов
                 summary = response.strip()
+                for prefix in ["Summary:", "summary:", "Суть:", "Аннотация:", "Аннотация"]:
+                    if summary.startswith(prefix):
+                        summary = summary[len(prefix):].strip()
                 return summary if summary else "Не удалось сгенерировать резюме"
             else:
                 return "Ошибка генерации резюме"
         except Exception as e:
             print(f"Error generating summary: {e}")
             return "Ошибка генерации резюме"
+
+    def _generate_title(self, text: str) -> str:
+        prompt = self.TITLE_PROMPT.format(text=text)
+        try:
+            response = self._call_ollama(prompt)
+            if response:
+                title = response.strip()
+                for prefix in ["Заголовок:", "Заголовок"]:
+                    if title.startswith(prefix):
+                        title = title[len(prefix):].strip()
+                return title if title else "Без заголовка"
+            return "Без заголовка"
+        except Exception as e:
+            print(f"Error generating title: {e}")
+            return "Без заголовка"
 
     def _classify_category(self, text: str) -> str:
         """Определить категорию"""
@@ -91,8 +114,10 @@ class OllamaAgent(BaseAIAgent):
             "prompt": prompt,
             "stream": False,
             "options": {
-                "temperature": 0.1,  # Низкая температура для детерминированных ответов
-                "num_predict": 100   # Ограничение длины ответа
+                "temperature": 0.2,
+                "num_predict": 128,
+                "top_k": 40,
+                "top_p": 0.9
             }
         }
 

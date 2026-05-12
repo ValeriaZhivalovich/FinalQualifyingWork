@@ -41,25 +41,59 @@ class SourcesPage:
 
     def _populate_sources_list(self):
         self.sources_list_container.controls.clear()
-        if not self.repository:
-            self.sources_list_container.controls.append(ft.Text("База данных не подключена", color=ft.Colors.RED))
-            return
-        try:
-            sources = self.repository.get_active_sources()
-            if not sources:
-                self.sources_list_container.controls.append(ft.Text("Нет подключённых источников", color=ft.Colors.GREY))
-            else:
-                for source in sources:
+
+        # 1. Активные коллекторы (из orchestrator)
+        if self.orchestrator and hasattr(self.orchestrator, 'collectors'):
+            source_icons = {
+                "rss": ft.Icons.RSS_FEED,
+                "vk": ft.Icons.GROUP,
+                "vk_wave": ft.Icons.GROUP,
+                "telegram": ft.Icons.SEND,
+                "telegram_telethon": ft.Icons.SEND,
+                "telegram_pyrogram": ft.Icons.SEND,
+                "twitter_twikit": ft.Icons.ALTERNATE_EMAIL,
+                "reddit": ft.Icons.FORUM,
+                "reddit_async": ft.Icons.FORUM,
+            }
+            active = [c for c in self.orchestrator.collectors if c.validate_config()]
+            if active:
+                self.sources_list_container.controls.append(
+                    ft.Text("Системные источники:", weight=ft.FontWeight.BOLD, size=14)
+                )
+                for c in active:
+                    name = getattr(c, 'source_name', 'unknown')
+                    icon = source_icons.get(name, ft.Icons.LINK)
                     self.sources_list_container.controls.append(
                         ft.ListTile(
-                            leading=ft.Icon(ft.Icons.RSS_FEED, color=ft.Colors.BLUE),
-                            title=ft.Text(source.name),
-                            subtitle=ft.Text(f"Тип: {source.type}"),
-                            trailing=ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN) if source.is_active else ft.Icon(ft.Icons.PAUSE_CIRCLE, color=ft.Colors.GREY),
+                            leading=ft.Icon(icon, color=ft.Colors.GREEN),
+                            title=ft.Text(name),
+                            subtitle=ft.Text("Активен"),
+                            trailing=ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN),
                         )
                     )
-        except Exception as e:
-            self.sources_list_container.controls.append(ft.Text(f"Ошибка загрузки источников: {e}", color=ft.Colors.RED))
+
+        # 2. Пользовательские источники из БД (RSS, добавленные вручную)
+        if self.repository:
+            try:
+                sources = self.repository.get_active_sources()
+                if sources:
+                    self.sources_list_container.controls.append(
+                        ft.Text("Пользовательские источники:", weight=ft.FontWeight.BOLD, size=14)
+                    )
+                    for source in sources:
+                        self.sources_list_container.controls.append(
+                            ft.ListTile(
+                                leading=ft.Icon(ft.Icons.RSS_FEED, color=ft.Colors.BLUE),
+                                title=ft.Text(source.name),
+                                subtitle=ft.Text(f"Тип: {source.type}"),
+                                trailing=ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN) if source.is_active else ft.Icon(ft.Icons.PAUSE_CIRCLE, color=ft.Colors.GREY),
+                            )
+                        )
+            except Exception as e:
+                self.sources_list_container.controls.append(ft.Text(f"Ошибка загрузки источников: {e}", color=ft.Colors.RED))
+
+        if not self.sources_list_container.controls:
+            self.sources_list_container.controls.append(ft.Text("Нет подключённых источников", color=ft.Colors.GREY))
 
     def _show_add_rss_dialog(self, e):
         """Show dialog to add RSS source"""
@@ -70,7 +104,7 @@ class SourcesPage:
         url_field = ft.TextField(label="URL RSS ленты", hint_text="https://...", width=400)
 
         def close_dialog(e):
-            self.page.close_dialog()
+            self.page.pop_dialog()
             self.page.update()
 
         def save_source(e):
@@ -91,7 +125,7 @@ class SourcesPage:
                 )
                 self.repository.save_source(source)
                 self.page.show_dialog(ft.SnackBar(ft.Text(f"Добавлен: {name}")))
-                self.page.close_dialog()
+                self.page.pop_dialog()
                 self._populate_sources_list()
                 self.page.update()
             except Exception as ex:

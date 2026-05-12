@@ -16,10 +16,6 @@ class NewsAnalyzerApp:
         self.repository = repository
         self.page = None
         self.current_page_index = 0
-        self.all_articles: List[Dict[str, Any]] = []
-        self.articles: List[Dict[str, Any]] = []
-        self.card_refs: Dict[int, Dict] = {}
-        self.show_unread_only = False
         self.auto_update_enabled = False
         self.rss_url_field = None
 
@@ -58,13 +54,11 @@ class NewsAnalyzerApp:
             on_change=self.on_navigation_change
         )
 
-        # Интеграция UI-страниц согласно design_doc
+        # Интеграция UI-страниц
         self.feed_page = FeedPage(repository=self.repository, orchestrator=self.orchestrator)
         self.sources_page = SourcesPage(repository=self.repository, orchestrator=self.orchestrator)
         self.settings_page = SettingsPage(repository=self.repository, ai_agent=self.orchestrator.ai_agent if self.orchestrator else None) if self.orchestrator else SettingsPage()
 
-        self.load_articles_from_db()
-        # Bind refresh callback so feed page can request UI refresh
         try:
             self.feed_page.set_refresh_callback(lambda: page.update())
         except Exception:
@@ -94,105 +88,6 @@ class NewsAnalyzerApp:
             self.page_content.content = self.settings_page.build(page=self.page)
 
         self.page.update()
-
-    def build_feed_page(self):
-        """Построить страницу ленты новостей"""
-        category_filter = ft.Dropdown(
-            label="Категория",
-            options=[
-                ft.DropdownOption(key="Все", text="Все"),
-                ft.DropdownOption(key="политика", text="политика"),
-                ft.DropdownOption(key="технологии", text="технологии"),
-                ft.DropdownOption(key="экономика", text="экономика"),
-                ft.DropdownOption(key="спорт", text="спорт"),
-                ft.DropdownOption(key="культура", text="культура"),
-                ft.DropdownOption(key="прочее", text="прочее"),
-            ],
-            value="Все",
-            width=180,
-            on_select=lambda e: self._apply_filters_and_refresh()
-        )
-        self.category_filter_ctrl = category_filter
-
-        source_filter = ft.Dropdown(
-            label="Источник",
-            options=[
-                ft.DropdownOption(key="Все", text="Все"),
-                ft.DropdownOption(key="rss", text="rss"),
-                ft.DropdownOption(key="telegram", text="telegram"),
-                ft.DropdownOption(key="vk", text="vk"),
-            ],
-            value="Все",
-            width=180,
-            on_select=lambda e: self._apply_filters_and_refresh()
-        )
-        self.source_filter_ctrl = source_filter
-
-        search_field = ft.TextField(
-            label="Поиск",
-            hint_text="Поиск по заголовку и резюме...",
-            width=250,
-            on_submit=lambda e: self._apply_filters_and_refresh()
-        )
-        self.search_field_ctrl = search_field
-
-        unread_switch = ft.Switch(
-            label="Только непрочитанные",
-            value=False,
-            on_change=self.toggle_unread_filter
-        )
-
-        articles_column = ft.Column(
-            controls=self._build_article_cards(),
-            scroll=ft.ScrollMode.AUTO,
-            spacing=10,
-            expand=True
-        )
-        self.articles_column = articles_column
-
-        return ft.Container(
-            content=ft.Column([
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text("Лента новостей", size=26, weight=ft.FontWeight.BOLD),
-                        ft.Row([
-                            category_filter,
-                            source_filter,
-                            search_field,
-                            unread_switch,
-                            ft.ElevatedButton("Обновить новости", icon=ft.Icons.REFRESH, on_click=self.refresh_news),
-                        ], spacing=10, wrap=True),
-                    ]),
-                    padding=20
-                ),
-                ft.Divider(),
-                ft.Container(
-                    content=articles_column,
-                    padding=20,
-                    expand=True
-                ),
-            ]),
-            expand=True
-        )
-
-    def _build_article_cards(self):
-        """Построить список карточек новостей"""
-        self.card_refs.clear()
-
-        if not self.articles:
-            return [
-                ft.Container(
-                    content=ft.Column([
-                        ft.Icon(ft.Icons.RSS_FEED, size=48, color=ft.Colors.GREY),
-                        ft.Text("Новостей пока нет", size=20, weight=ft.FontWeight.BOLD),
-                        ft.Text("Добавьте RSS-источники и запустите парсинг", size=14, color=ft.Colors.GREY),
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-                    padding=40,
-                    alignment=ft.alignment.center
-                )
-            ]
-
-        return [self.create_news_card(article) for article in self.articles]
 
     def build_sources_page(self):
         """Создать страницу источников"""
@@ -314,207 +209,32 @@ class NewsAnalyzerApp:
         except Exception as e:
             return f"Ошибка: {e}"
 
-    def _apply_filters_and_refresh(self):
-        """Применить фильтры и обновить отображение"""
-        self.apply_filter()
-        self.articles_column.controls = self._build_article_cards()
-        self.page.update()
-
-    def create_news_card(self, article):
-        """Создать карточку новости"""
-        title = article['title']
-        summary = article['summary']
-        category = article['category']
-        published_at = article['published_at']
-        source = article.get('source', 'rss')
-        is_read = article.get('is_read', False)
-        article_id = article['id']
-
-        category_colors = {
-            "технологии": ft.Colors.BLUE,
-            "политика": ft.Colors.RED,
-            "экономика": ft.Colors.GREEN,
-            "спорт": ft.Colors.ORANGE,
-            "культура": ft.Colors.PURPLE,
-            "прочее": ft.Colors.GREY,
-        }
-
-        is_dark = self.page.theme_mode == ft.ThemeMode.DARK
-
-        if is_read:
-            title_color = ft.Colors.GREY_300 if is_dark else ft.Colors.GREY_400
-            summary_color = ft.Colors.GREY_400 if is_dark else ft.Colors.GREY_500
-        else:
-            title_color = ft.Colors.WHITE if is_dark else ft.Colors.BLACK
-            summary_color = ft.Colors.GREY_100 if is_dark else ft.Colors.BLACK87
-
-        source_icons = {
-            "rss": ft.Icons.RSS_FEED,
-            "telegram": ft.Icons.SEND,
-            "vk": ft.Icons.GROUP,
-        }
-
-        chip = ft.Chip(
-            label=ft.Text(category, size=10, color=ft.Colors.WHITE),
-            bgcolor=category_colors.get(category, ft.Colors.GREY),
-        )
-
-        source_icon = ft.Icon(source_icons.get(source, ft.Icons.LINK), size=14, color=ft.Colors.BLUE)
-
-        date_text = ft.Text(published_at, size=12, color=ft.Colors.GREY)
-
-        read_icon = ft.Icon(
-            ft.Icons.CHECK_CIRCLE if is_read else ft.Icons.RADIO_BUTTON_UNCHECKED,
-            size=16,
-            color=ft.Colors.GREEN if is_read else ft.Colors.GREY,
-        )
-
-        title_text = ft.Text(title, size=16, weight=ft.FontWeight.BOLD, color=title_color)
-
-        summary_text = ft.Text(summary, size=14, max_lines=3, color=summary_color)
-
-        def open_url(e):
-            url = article.get('url', '#')
-            if url and url != '#':
-                async def _launch():
-                    await self.page.launch_url(url)
-                self.page.run_task(_launch)
-            else:
-                self.page.show_dialog(ft.SnackBar(ft.Text("Ссылка недоступна")))
-
-        open_button = ft.TextButton("Открыть", on_click=open_url)
-
-        def mark_read(e):
-            self._mark_article_read(article_id)
-
-        read_button = ft.TextButton(
-            "Прочитано" if is_read else "Отметить прочитанным",
-            on_click=mark_read,
-            disabled=is_read
-        )
-
-        card = ft.Card(
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        source_icon,
-                        ft.Text(source.capitalize(), size=12, color=ft.Colors.GREY),
-                        ft.Container(width=10),
-                        chip,
-                        date_text,
-                        read_icon,
-                    ]),
-                    title_text,
-                    summary_text,
-                    ft.Row([open_button, read_button])
-                ]),
-                padding=15
-            )
-        )
-
-        return card
-
-    def _mark_article_read(self, article_id: int):
-        """Отметить статью как прочитанную через БД"""
-        if not self.repository:
-            self.page.show_dialog(ft.SnackBar(ft.Text("База данных не подключена")))
-            return
-
-        try:
-            success = self.repository.mark_as_read(article_id)
-            if success:
-                for article in self.articles:
-                    if article['id'] == article_id:
-                        article['is_read'] = True
-                        break
-                for article in self.all_articles:
-                    if article['id'] == article_id:
-                        article['is_read'] = True
-                        break
-                self.articles_column.controls = self._build_article_cards()
-                self.page.show_dialog(ft.SnackBar(ft.Text("Отмечено как прочитанное")))
-                self.page.update()
-            else:
-                self.page.show_dialog(ft.SnackBar(ft.Text("Не удалось обновить статус")))
-        except Exception as e:
-            self.page.show_dialog(ft.SnackBar(ft.Text(f"Ошибка: {str(e)}")))
-
-    def refresh_news(self, e):
-        """Обновить новости через парсинг"""
+    def run_parsing(self, e):
+        """Запустить парсинг источников"""
         if not self.orchestrator:
             self.page.show_dialog(ft.SnackBar(ft.Text("Парсер не инициализирован")))
             return
 
-        self.page.show_dialog(ft.SnackBar(ft.Text("Обновление новостей...")))
+        self.page.show_dialog(ft.SnackBar(ft.Text("Запуск парсинга...")))
 
-        def run_parsing():
+        def run_parsing_thread():
             try:
                 count = self.orchestrator.run_full_cycle()
 
                 async def update_ui():
-                    self.page.show_dialog(ft.SnackBar(ft.Text(f"Добавлено {count} новых новостей")))
-                    self.load_articles_from_db()
-                    self.articles_column.controls = self._build_article_cards()
+                    status = "Парсинг завершён!" if count > 0 else "Новых новостей нет"
+                    self.page.show_dialog(ft.SnackBar(ft.Text(f"{status} Обработано {count}")))
+                    self.feed_page.refresh()
+                    if self.current_page_index == 1:
+                        self.page_content.content = self.build_sources_page()
                     self.page.update()
                 self.page.run_task(update_ui)
             except Exception as ex:
                 async def show_error():
-                    self.page.show_dialog(ft.SnackBar(ft.Text(f"Ошибка: {str(ex)}")))
+                    self.page.show_dialog(ft.SnackBar(ft.Text(f"Ошибка парсинга: {str(ex)}")))
                 self.page.run_task(show_error)
 
-        threading.Thread(target=run_parsing, daemon=True).start()
-
-    def load_articles_from_db(self):
-        """Загрузить новости из базы данных"""
-        if not self.repository:
-            self.all_articles = []
-            self.articles = []
-            return
-
-        try:
-            db_articles = self.repository.get_articles(limit=100)
-            self.all_articles = []
-            for article in db_articles:
-                article_dict = {
-                    'id': article.id,
-                    'source': article.source,
-                    'title': article.title or "Без заголовка",
-                    'summary': article.summary[:200] + "..." if article.summary and len(article.summary) > 200 else article.summary or "Без описания",
-                    'category': article.category or "прочее",
-                    'published_at': article.published_at.strftime("%Y-%m-%d %H:%M") if article.published_at else "Неизвестно",
-                    'url': article.url or "#",
-                    'is_read': bool(article.is_read)
-                }
-                self.all_articles.append(article_dict)
-
-            self.apply_filter()
-
-        except Exception as e:
-            print(f"Ошибка загрузки новостей из БД: {e}")
-            self.all_articles = []
-            self.articles = []
-
-    def apply_filter(self):
-        """Применить фильтр к новостям"""
-        if self.show_unread_only:
-            self.articles = [a for a in self.all_articles if not a['is_read']]
-        else:
-            self.articles = self.all_articles.copy()
-
-    def toggle_unread_filter(self, e):
-        """Переключить фильтр непрочитанных новостей"""
-        self.show_unread_only = e.control.value
-        self.apply_filter()
-        if self.current_page_index == 0:
-            self.articles_column.controls = self._build_article_cards()
-            self.page.update()
-
-    def update_feed_display(self):
-        """Обновить отображение ленты новостей"""
-        self.load_articles_from_db()
-        if self.current_page_index == 0:
-            self.articles_column.controls = self._build_article_cards()
-        self.page.update()
+        threading.Thread(target=run_parsing_thread, daemon=True).start()
 
     def add_rss_source(self, e):
         """Добавить RSS источник"""
@@ -531,7 +251,7 @@ class NewsAnalyzerApp:
         )
 
         def close_dialog(e):
-            self.page.close_dialog()
+            self.page.pop_dialog()
             self.page.update()
 
         def save_source(e):
@@ -560,7 +280,7 @@ class NewsAnalyzerApp:
                 self.repository.save_source(source)
 
                 self.page.show_dialog(ft.SnackBar(ft.Text(f"Источник добавлен: {name}")))
-                self.page.close_dialog()
+                self.page.pop_dialog()
 
                 if self.current_page_index == 1:
                     self.page_content.content = self.build_sources_page()
@@ -582,33 +302,6 @@ class NewsAnalyzerApp:
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         ))
-
-    def run_parsing(self, e):
-        """Запустить парсинг источников"""
-        if not self.orchestrator:
-            self.page.show_dialog(ft.SnackBar(ft.Text("Парсер не инициализирован")))
-            return
-
-        self.page.show_dialog(ft.SnackBar(ft.Text("Запуск парсинга...")))
-
-        def run_parsing_thread():
-            try:
-                count = self.orchestrator.run_full_cycle()
-
-                async def update_ui():
-                    status = "Парсинг завершён!" if count > 0 else "Новых новостей нет"
-                    self.page.show_dialog(ft.SnackBar(ft.Text(f"{status} Обработано {count}")))
-                    self.update_feed_display()
-                    if self.current_page_index == 1:
-                        self.page_content.content = self.build_sources_page()
-                    self.page.update()
-                self.page.run_task(update_ui)
-            except Exception as ex:
-                async def show_error():
-                    self.page.show_dialog(ft.SnackBar(ft.Text(f"Ошибка парсинга: {str(ex)}")))
-                self.page.run_task(show_error)
-
-        threading.Thread(target=run_parsing_thread, daemon=True).start()
 
     def test_ollama(self, e):
         """Проверить Ollama"""

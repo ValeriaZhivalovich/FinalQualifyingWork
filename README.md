@@ -1,32 +1,70 @@
-# Анализ новостных лент на основе ИИ-агентов и методов НЛП
+# News Analyzer
 
-Десктопное приложение для автоматического сбора, обработки и анализа новостей из различных источников (Telegram, VK, RSS) с использованием ИИ-агентов и методов обработки естественного языка.
+Десктопное приложение для автоматического сбора, обработки и анализа новостей из различных источников (Telegram, VK, Twitter/X, Reddit, RSS) с использованием ИИ-агентов и методов обработки естественного языка.
 
 ## Стек технологий
-- Python 3.11+
+- Python 3.12+
 - Flet (GUI)
 - SQLite + SQLAlchemy
-- Ollama (локальные LLM)
-- Telethon (Telegram API)
-- vk_api (VK API)
+- Ollama (локальные LLM, mistral:7b)
+- Telethon / Pyrogram (Telegram API)
+- vk_api / vkwave (VK API)
+- Twikit (Twitter/X API, без API-ключа)
+- PRAW / Async PRAW (Reddit API)
 - feedparser (RSS)
 - NLTK, pymystem3 (NLP)
-- APScheduler (планировщик)
+- pydantic-settings (конфигурация)
 
 ## Архитектура
 Система построена по модульному принципу с разделением на слои:
-1. Сбор данных (Collectors)
-2. Нормализация текста (NLP Preprocessor)
-3. ИИ-обработка (AI Agent)
-4. Хранение данных (Database)
-5. Интерфейс (Flet UI)
-6. Оркестрация (Scheduler)
+1. Сбор данных (Collectors) — RSS, Telegram, VK, Twitter/X, Reddit
+2. Нормализация текста (NLP Preprocessor) — очистка HTML/URL, выделение ключевых слов
+3. ИИ-обработка (AI Agent) — генерация заголовка (если отсутствует), саммари, категоризация
+4. Хранение данных (Database) — дедупликация по SHA256 хешу + unique constraint
+5. Интерфейс (Flet UI) — лента новостей, источники, настройки
+6. Оркестрация (Scheduler) — периодический сбор новостей
 
 ## Запуск
-1. Установите зависимости: `pip install -r requirements.txt`
-2. Установите и запустите Ollama: https://ollama.ai
-3. Скачайте модель: `ollama pull mistral:7b`
-4. Запустите приложение: `python news_analyzer/main.py`
+
+```bash
+# 1. Виртуальное окружение
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+
+# 2. Зависимости
+pip install -r requirements.txt
+
+# 3. Ollama
+# Установите и запустите: https://ollama.ai
+ollama pull mistral:7b
+
+# 4. Настройки
+copy .env.example .env
+# Заполните .env (VK_ACCESS_TOKEN, TELEGRAM_API_ID, и т.д.)
+
+# 5. Запуск (нативное окно)
+flet run news_analyzer/main.py
+
+# Или в браузере
+python news_analyzer/main.py
+
+# Headless режим (без GUI)
+python news_analyzer/main.py --headless
+```
+
+## Источники
+
+Коллекторы включаются автоматически при наличии соответствующих ключей в `.env`:
+
+| Источник | Ключи в .env | Статус |
+|----------|-------------|--------|
+| RSS | — | Всегда активен |
+| Telegram | TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE | Опционально |
+| VK | VK_ACCESS_TOKEN | Опционально |
+| Twitter/X | TWITTER_USERNAME, TWITTER_PASSWORD, TWITTER_EMAIL | Опционально |
+| Reddit | REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT | Опционально |
+
+По умолчанию все источники фильтруются по ключевым словам Крыма. Фильтрацию можно отключить или изменить в коде коллекторов.
 
 ## Структура проекта
 ```
@@ -38,42 +76,9 @@ news_analyzer/
 ├── pipeline/            # Оркестрация и планировщик
 ├── ui/                  # Графический интерфейс
 ├── config/              # Настройки
-├── tests/               # Тесты
-├── logs/                # Логи
 ├── utils/               # Утилиты
 └── main.py              # Точка входа
 ```
 
 ## Лицензия
 MIT
-
-## Соответствие дизайн-доку
-- Архитектура проекта реализована по слоистому конвейеру: Collectors -> NLP Preprocessor -> AI Agent -> Database -> UI, что соответствует разделам 2–5 в дизайн-доке.
-- Реализованы модули:
-  - collectors (RSS реализован; Telegram и VK — заглушки)
-  - nlp (preprocessor)
-  - ai (ollama_backend и абстракции)
-  - db (models, repository, database)
-  - pipeline (orchestrator, scheduler)
-  - ui (Flet) — основная точка входа app.py и частичная интеграция страниц Feed/Sources/Settings
-- RSS-фильтрация реализована через keywords. По умолчанию активно ограничение на тематику (Крым и близкие термины), но предусмотрена возможность отключения фильтрации без изменения дизайна через пустой список keywords.
-- UI-страницы в проекте разделены на три уровня: Feed, Sources, Settings. Есть ядро навигации и единый контекст (repository + orchestrator) для переходов между страницами.
-- __init__.py файлы добавлены во все пакеты, чтобы устранить проблемы импорта, как предписано дизай-доком.
-- Локальная настройка Ollama и модели LLM реализованы через ai/ollama_backend и config/settings.py; интеграция с UI выполнена через страницы Settings.
-
-## Текущий статус и планы до полного соответствия дизай-доку
-- В рамках дизай-дока реализованы три UI-страницы и единый контекст, но некоторые детали интеграции UI ещё требуют финализации (полная миграция feed_page.py, sources_page.py, settings_page.py к единому центру через app.py).
-- Telegram/VK коллекторы — заглушки; полноценная реализация будет добавлена позже в репозиторий в рамках расширения Collector Registry.
-- Тесты и CI: в README можно добавить раздел тестирования, по плану — добавить unit/integration тесты и зафиксировать CI-пайплайны.
-
-## Быстрый запуск (уточнение по окружению)
-- Рекомендуется использовать виртуальное окружение и активировать его перед установкой зависимостей:
-  - python -m venv .venv
-  - .venv\Scripts\activate (Windows) или source .venv/bin/activate (Unix)
-- Установить зависимости: pip install -r requirements.txt
-- У Ollama: следовать инструкциям на https://ollama.ai и загрузить модель: ollama pull mistral:7b
-- Запуск: python news_analyzer/main.py
-- Headless режим: python news_analyzer/main.py --headless
-
-## Примечания
-- README добавлен как дополнительный инструмент документирования текущего состояния проекта и не должен изменять дизай-док. Весь функционал базируется на коде, который следует архитектурной дорожной карте дизайн-дока.

@@ -13,3 +13,11 @@ pydantic-settings>=2.0.0
 loguru>=0.7.0
 pytest>=8.0.0
 requests>=2.31.0
+
+# Social media collectors
+pyrogram
+snscrape
+twikit
+vkwave
+praw
+asyncpraw

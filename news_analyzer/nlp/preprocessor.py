@@ -67,26 +67,13 @@ class NLPPreprocessor:
         """Обработать сырую публикацию"""
         # Определение языка
         try:
-            # Ограничиваем текст для определения языка (langdetect может зависать на длинных текстах)
             text_sample = raw_article.text[:1000] if len(raw_article.text) > 1000 else raw_article.text
             language = langdetect.detect(text_sample)
         except:
             language = 'unknown'
 
-        # Очистка текста
+        # Щадящая очистка — только HTML/URL/мусор, без стоп-слов и лемматизации
         text_clean = self._clean_text(raw_article.text)
-
-        # Токенизация
-        tokens = self._tokenize(text_clean, language)
-
-        # Удаление стоп-слов
-        tokens = self._remove_stopwords(tokens, language)
-
-        # Лемматизация
-        tokens = self._lemmatize(tokens, language)
-
-        # Собираем обратно в текст
-        text_clean = ' '.join(tokens)
 
         return CleanArticle(
             source=raw_article.source,
@@ -98,16 +85,20 @@ class NLPPreprocessor:
             language=language
         )
 
+    def extract_keywords(self, text: str, language: str = 'russian') -> str:
+        """Извлечь ключевые слова (стоп-слова + лемматизация) для поиска/анализа"""
+        text = self._clean_text(text)
+        tokens = self._tokenize(text, language)
+        tokens = self._remove_stopwords(tokens, language)
+        tokens = self._lemmatize(tokens, language)
+        return ' '.join(tokens)
+
     def _clean_text(self, text: str) -> str:
-        """Базовая очистка текста"""
-        # Удаление HTML-тегов
+        """Щадящая очистка — HTML, URL, лишние пробелы. Без удаления пунктуации"""
         text = re.sub(r'<[^>]+>', '', text)
-        # Удаление эмодзи и спецсимволов (кроме букв, цифр, пробелов)
-        text = re.sub(r'[^\w\s]', '', text)
-        # Нормализация пробелов
+        text = re.sub(r'https?://\S+', '', text)
         text = re.sub(r'\s+', ' ', text).strip()
-        # Нижний регистр
-        return text.lower()
+        return text
 
     def _tokenize(self, text: str, language: str) -> list[str]:
         """Токенизация текста"""
